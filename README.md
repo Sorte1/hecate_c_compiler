@@ -64,3 +64,60 @@ The Hecate C Compiler:
 * Use Clang to generate the `.ll` files needed by the compiler.
 * The compiler assumes the target architecture supports the required LLVM features.
 * The assembler and virtual machine may not yet support all instructions and features in the HASM specification.
+
+
+## Example output
+
+```c++
+void inspect(void *p1);
+int main() {
+    char const *str = "Hello, world";
+  for (int i = 1; i <= 6969; i++) {
+
+     inspect(&i);
+  }
+
+
+  return 0;
+}
+```
+
+```asm
+; --- Global Data Section ---
+;.str:
+;  db  72,101,108,108,111,44,32,119,111,114,108,100,0 ; "Hello, world"
+; --- End of Global Data ---
+
+main:
+Block0:
+  ; local space: @1000
+  ; local space: @1004
+  ; local space: @1008
+  store @1000, R0
+  store @1004, R2
+  store @1008, R1
+  jmp @Block1
+Block1:
+  load R3, @1008
+  ; icmp sle R3, 6969
+  cmp R3, 6969
+  cmp R4, R0
+  je @Block4
+  jmp @Block2
+Block2:
+  inspect @1008 ; debug
+  jmp @Block3
+Block3:
+  load R5, @1008
+  ; plus R6 = R5 + R1
+  loadReg R6, R5
+  add R6, R1
+  store @1008, R6
+  jmp @Block1
+Block4:
+  ; returning R0
+  ret
+  halt ; main ended
+
+```
+
