@@ -1,4 +1,5 @@
 # Hecate C Compiler README
+## [Hecate project](https://github.com/hardliner66/hecate)
 
 This document explains how to use the Hecate C Compiler to generate Hecate Assembly (HASM) files. The compiler translates LLVM IR (`.ll` files) into assembly that can be run on the Hecate Virtual Machine.
 
