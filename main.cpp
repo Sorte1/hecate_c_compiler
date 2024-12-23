@@ -15,9 +15,10 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <algorithm>
 
 static std::vector<std::string> availableRegs = {
-    "R7", "R6", "R5", "R4", "R3", "R2"
+    "R5", "R4", "R3", "R2"
 };
 static std::unordered_map<const llvm::Value*, std::string> valueToReg;
 
@@ -71,7 +72,7 @@ static void assignAllocaLabels(const llvm::Function &func) {
 
 static void emitGlobalStringsAsStoresWithRegister(const llvm::Module &M, std::ostream &out) {
     out << "globalinit:\n";
-    const std::string TEMP_REG = "R7";
+    const std::string TEMP_REG = "R5";
 
     for (auto &gvar : M.globals()) {
         if (gvar.hasInitializer()) {
@@ -83,12 +84,13 @@ static void emitGlobalStringsAsStoresWithRegister(const llvm::Module &M, std::os
                     unsigned baseAddr = nextStringAddress;
                     globalStringBase[&gvar] = baseAddr;
 
-                    out << "  ; init string " << strName << " \"" << strData.c_str() << "\" @"
+                    out << "  ; init string " << strName
+                        << " \"" << strData.c_str() << "\" @"
                         << baseAddr << "\n";
 
                     for (size_t i = 0; i < strData.size(); i++) {
                         unsigned char c = (unsigned char)strData[i];
-                        out << "  loadValue " << TEMP_REG << ", " << (unsigned)c << "\n";
+                        out << "  load " << TEMP_REG << ", " << (unsigned)c << "\n";
                         out << "  storeByte @" << (baseAddr + i) << ", " << TEMP_REG << "\n";
                     }
                     nextStringAddress += (unsigned)strData.size();
@@ -103,13 +105,14 @@ static std::string getMemoryAddress(const llvm::Value *ptrVal) {
     ptrVal = ptrVal->stripPointerCasts();
 
     if (auto *ai = llvm::dyn_cast<llvm::AllocaInst>(ptrVal)) {
-        auto it = allocaMap.find(ai);
-        if (it != allocaMap.end()) return it->second;
+        if (allocaMap.find(ai) != allocaMap.end()) {
+            return allocaMap[ai];
+        }
     }
     if (auto *gv = llvm::dyn_cast<llvm::GlobalVariable>(ptrVal)) {
         auto it = globalStringBase.find(gv);
         if (it != globalStringBase.end()) {
-            return std::to_string(it->second);
+            return "@" + std::to_string(it->second);
         }
         return "@" + gv->getName().str();
     }
@@ -176,8 +179,8 @@ static void convertInstruction(const llvm::Instruction &inst, std::ostream &outp
         bool isNum = !src.empty() && std::all_of(src.begin(), src.end(), ::isdigit);
 
         if (isNum) {
-            output << "  loadValue R7, " << src << "\n";
-            output << "  store " << memAddr << ", R7\n";
+            output << "  load R5, " << src << "\n";
+            output << "  store " << memAddr << ", R5\n";
         } else {
             output << "  store " << memAddr << ", " << src << "\n";
         }
@@ -244,7 +247,6 @@ static void convertInstruction(const llvm::Instruction &inst, std::ostream &outp
         const ICmpInst *icmp = dyn_cast<ICmpInst>(&inst);
         std::string lhs = getOperandString(icmp->getOperand(0));
         std::string rhs = getOperandString(icmp->getOperand(1));
-        std::string destReg = getRegisterForValue(&inst);
         std::string predName = ICmpInst::getPredicateName(icmp->getPredicate()).str();
         output << "  ; icmp " << predName << " " << lhs << ", " << rhs << "\n";
         output << "  cmp " << lhs << ", " << rhs << "\n";
@@ -260,19 +262,19 @@ static void convertInstruction(const llvm::Instruction &inst, std::ostream &outp
 
         if (opcodeName == "add") {
             output << "  ; plus " << destReg << " = " << lhs << " + " << rhs << "\n";
-            output << "  loadReg " << destReg << ", " << lhs << "\n";
+            output << "  load " << destReg << ", " << lhs << "\n";
             output << "  add " << destReg << ", " << rhs << "\n";
         } else if (opcodeName == "sub") {
             output << "  ; minus " << destReg << " = " << lhs << " - " << rhs << "\n";
-            output << "  loadReg " << destReg << ", " << lhs << "\n";
+            output << "  load " << destReg << ", " << lhs << "\n";
             output << "  sub " << destReg << ", " << rhs << "\n";
         } else if (opcodeName == "mul") {
             output << "  ; multiply " << destReg << " = " << lhs << " * " << rhs << "\n";
-            output << "  loadReg " << destReg << ", " << lhs << "\n";
+            output << "  load " << destReg << ", " << lhs << "\n";
             output << "  mul " << destReg << ", " << rhs << "\n";
         } else if (opcodeName == "udiv") {
             output << "  ; divide " << destReg << " = " << lhs << " / " << rhs << "\n";
-            output << "  loadReg " << destReg << ", " << lhs << "\n";
+            output << "  load " << destReg << ", " << lhs << "\n";
             output << "  div " << destReg << ", " << rhs << "\n";
         }
         return;
@@ -311,15 +313,19 @@ static void convertLLVMToCustomAssembly(const std::string &filename, std::ostrea
         return;
     }
 
-    availableRegs = {"R7", "R6", "R5", "R4", "R3", "R2"};
+    availableRegs = {"R5","R4","R3","R2"};
     valueToReg.clear();
     blockNameMap.clear();
     allocaMap.clear();
     allocaCounter = 0;
+    nextStringAddress = 2000;
+    globalStringBase.clear();
 
     emitGlobalStrings(*module, output);
-   // emitGlobalStringsAsStoresWithRegister(*module, output);
 
+    // emitGlobalStringsAsStoresWithRegister(*module, output);
+
+    // convert each function
     for (const llvm::Function &func : *module) {
         if (!func.isDeclaration()) {
             convertFunction(func, output);
