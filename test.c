@@ -1,11 +1,13 @@
-void inspect(void *p1);
+
+int add_int(int a, int b);
+
+extern void inspect(void *);
+
 int main() {
-    char const *str = "Hello, world";
-  for (int i = 1; i <= 6969; i++) {
+    int x = add_int(1001, 2002);
+    inspect(&x);
+}
 
-     inspect(&i);
-  }
-
-
-  return 0;
+int add_int(int a, int b) {
+    return a + b;
 }

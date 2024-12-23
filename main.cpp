@@ -156,6 +156,17 @@ static void emitGlobalStrings(const llvm::Module &module, std::ostream &out) {
     out << "; --- End of Global Data ---\n\n";
 }
 
+static bool isNumeric(const std::string &s) {
+    // Return true if s is purely an integer literal, e.g. "123"
+    return !s.empty() && std::all_of(s.begin(), s.end(), ::isdigit);
+}
+
+static bool isRegister(const std::string &s) {
+    // If you label registers with 'R', e.g. R2, R3, ...
+    // This is a simplistic check; you can refine it
+    return (s.size() >= 2 && s[0] == 'R' && isdigit(s[1]));
+}
+
 static void convertInstruction(const llvm::Instruction &inst, std::ostream &output) {
     using namespace llvm;
     std::string opcodeName = inst.getOpcodeName();
@@ -195,6 +206,7 @@ static void convertInstruction(const llvm::Instruction &inst, std::ostream &outp
         return;
     }
 
+
     if (auto *callInst = dyn_cast<CallInst>(&inst)) {
         if (auto *func = callInst->getCalledFunction()) {
             if (func->getName() == "inspect") {
@@ -206,6 +218,13 @@ static void convertInstruction(const llvm::Instruction &inst, std::ostream &outp
                     output << "  inspect @unknown_mem ; debug\n";
                 }
             } else {
+                unsigned n = callInst->arg_size();
+                for (unsigned i = 0; i < n; i++) {
+                    const Value *arg = callInst->getArgOperand(i);
+                    std::string str = getOperandString(arg);
+                    if (i == 0) output << "  load R3, " << str << "\n";
+                    if (i == 1) output << "  load R4, " << str << "\n";
+                }
                 output << "  call @" << func->getName().str() << "\n";
             }
         } else {
@@ -254,31 +273,32 @@ static void convertInstruction(const llvm::Instruction &inst, std::ostream &outp
     }
 
     if (opcodeName == "add" || opcodeName == "sub" ||
-        opcodeName == "mul" || opcodeName == "udiv")
-    {
-        std::string lhs = getOperandString(inst.getOperand(0));
-        std::string rhs = getOperandString(inst.getOperand(1));
-        std::string destReg = getRegisterForValue(&inst);
+        opcodeName == "mul" || opcodeName == "udiv") {
+        std::string lhsOp = getOperandString(inst.getOperand(0));
+        std::string rhsOp = getOperandString(inst.getOperand(1));
+
+        std::string lhsReg = getRegisterForValue(inst.getOperand(0));
+        std::string rhsReg = getRegisterForValue(inst.getOperand(1));
+
+        if (!isRegister(lhsOp)) {
+            output << "  load " << lhsReg << ", " << lhsOp << "\n";
+        }
+        if (!isRegister(rhsOp)) {
+            output << "  load " << rhsReg << ", " << rhsOp << "\n";
+        }
 
         if (opcodeName == "add") {
-            output << "  ; plus " << destReg << " = " << lhs << " + " << rhs << "\n";
-            output << "  load " << destReg << ", " << lhs << "\n";
-            output << "  add " << destReg << ", " << rhs << "\n";
+            output << "  add " << rhsReg << ", " << lhsReg << "\n";
         } else if (opcodeName == "sub") {
-            output << "  ; minus " << destReg << " = " << lhs << " - " << rhs << "\n";
-            output << "  load " << destReg << ", " << lhs << "\n";
-            output << "  sub " << destReg << ", " << rhs << "\n";
+            output << "  sub " << lhsReg << ", " << rhsReg << "\n";
         } else if (opcodeName == "mul") {
-            output << "  ; multiply " << destReg << " = " << lhs << " * " << rhs << "\n";
-            output << "  load " << destReg << ", " << lhs << "\n";
-            output << "  mul " << destReg << ", " << rhs << "\n";
-        } else if (opcodeName == "udiv") {
-            output << "  ; divide " << destReg << " = " << lhs << " / " << rhs << "\n";
-            output << "  load " << destReg << ", " << lhs << "\n";
-            output << "  div " << destReg << ", " << rhs << "\n";
+            output << "  mul " << lhsReg << ", " << rhsReg << "\n";
+        } else {
+            output << "  div " << lhsReg << ", " << rhsReg << "\n";
         }
+        valueToReg[&inst] = lhsReg;
         return;
-    }
+        }
 
     output << "  ; not handled: " << opcodeName << "\n";
 }
